@@ -101,6 +101,7 @@
             <select id="viewMode">
                 <option value="nganh_hang">Ngành hàng (DV_SC / Relax_Spa / DV_UND)</option>
                 <option value="category">Nhóm dịch vụ (main_p_Category)</option>
+                <option value="service_name">Tên dịch vụ (Name)</option>
             </select>
         </div>
         <div>
@@ -342,8 +343,10 @@ function getChartData() {
     let groupKey;
     if (mode === 'nganh_hang') {
         groupKey = 'Nganh_hang';
-    } else {
+    } else if (mode === 'category') {
         groupKey = 'main_p_Category_name';
+    } else {
+        groupKey = 'Name';
     }
 
     // Aggregate by groupKey
