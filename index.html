@@ -183,6 +183,44 @@ const COLORS = [
     '#0d9488','#ca8a04','#dc2626'
 ];
 
+// Logic SR:
+// - 1 salon: SR ngành hàng = tổng SR dịch vụ con
+// - 2+ salon: SR = tổng số gói / tổng số khách (số khách = số gói / SaleRate per row)
+function isMultiSalon(rows) {
+    const salons = new Set(rows.map(r => r.Salon_name));
+    return salons.size > 1;
+}
+
+function calcSR(rows) {
+    if (!rows.length) return 0;
+    if (!isMultiSalon(rows)) {
+        // 1 salon: tổng SR dịch vụ con
+        return rows.reduce((sum, r) => sum + r.avg_salerate, 0);
+    }
+    // 2+ salon: tổng gói / tổng khách
+    let totalPkg = 0, totalCustomers = 0;
+    rows.forEach(r => {
+        totalPkg += r.total_packages;
+        if (r.avg_salerate > 0) totalCustomers += r.total_packages / r.avg_salerate;
+    });
+    return totalCustomers > 0 ? totalPkg / totalCustomers : 0;
+}
+
+function calcSRByGroup(rows, groupKey) {
+    const groups = {};
+    rows.forEach(r => {
+        const key = r[groupKey];
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(r);
+    });
+    return Object.entries(groups).map(([label, grp]) => ({
+        label,
+        salerate: calcSR(grp),
+        revenue: grp.reduce((s, r) => s + r.total_revenue, 0),
+        packages: grp.reduce((s, r) => s + r.total_packages, 0),
+    })).sort((a, b) => b.salerate - a.salerate);
+}
+
 function formatVND(v) {
     if (v >= 1e9) return (v/1e9).toFixed(2) + ' tỷ';
     if (v >= 1e6) return (v/1e6).toFixed(1) + ' tr';
@@ -368,20 +406,9 @@ function getChartData() {
         groupKey = 'Name';
     }
 
-    // Aggregate by groupKey - salerate = tổng SR dịch vụ con
-    const agg = {};
-    filtered.forEach(row => {
-        const key = row[groupKey];
-        if (!agg[key]) agg[key] = { label: key, revenue: 0, packages: 0, total_salerate: 0 };
-        agg[key].revenue += row.total_revenue;
-        agg[key].packages += row.total_packages;
-        agg[key].total_salerate += row.avg_salerate;
-    });
-
-    const items = Object.values(agg).map(a => ({
-        ...a,
-        avg_salerate: a.total_salerate
-    })).sort((a,b) => b.revenue - a.revenue);
+    const items = calcSRByGroup(filtered, groupKey)
+        .map(a => ({ ...a, avg_salerate: a.salerate }))
+        .sort((a,b) => b.revenue - a.revenue);
 
     return { items, groupKey };
 }
@@ -405,16 +432,9 @@ function renderCharts() {
         const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
         srFiltered = srFiltered.filter(x => x[filterKey] === service);
     }
-    const srAgg = {};
-    srFiltered.forEach(row => {
-        const key = row.Name;
-        if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, total_salerate: 0 };
-        srAgg[key].packages += row.total_packages;
-        srAgg[key].total_salerate += row.avg_salerate;
-    });
-    const srItems = Object.values(srAgg).map(a => ({
-        ...a, avg_salerate: a.total_salerate
-    })).sort((a,b) => b.avg_salerate - a.avg_salerate);
+    const srItems = calcSRByGroup(srFiltered, 'Name')
+        .map(a => ({ ...a, avg_salerate: a.salerate }))
+        .sort((a,b) => b.avg_salerate - a.avg_salerate);
     const srLabels = srItems.map(i => i.label);
     const srHeight = Math.max(300, srItems.length * 32);
     document.getElementById('chartSaleRateWrap').style.height = srHeight + 'px';
@@ -533,10 +553,10 @@ function renderCharts() {
 }
 
 function renderRanking() {
-    // Tổng SR per salon
+    // SR per salon (1 salon = tổng SR dịch vụ con)
     const salonSRList = DATA.salons.map(sn => {
         const detail = DATA.salon_detail.filter(x => x.Salon_name === sn);
-        return { Salon_name: sn, totalSR: detail.reduce((sum, r) => sum + r.avg_salerate, 0) };
+        return { Salon_name: sn, totalSR: calcSR(detail) };
     });
     const sorted = salonSRList.sort((a,b) => b.totalSR - a.totalSR);
     const top20 = sorted.slice(0, 20);
@@ -574,20 +594,8 @@ function renderRanking() {
     });
 }
 
-// Sale Rate ngành hàng = tổng Sale Rate các dịch vụ con
 function calcNganhHangSR(detailData) {
-    const nhAgg = {};
-    detailData.forEach(r => {
-        const nh = r.Nganh_hang;
-        if (!nhAgg[nh]) nhAgg[nh] = { revenue: 0, packages: 0, total_salerate: 0 };
-        nhAgg[nh].revenue += r.total_revenue;
-        nhAgg[nh].packages += r.total_packages;
-        nhAgg[nh].total_salerate += r.avg_salerate;
-    });
-    return Object.entries(nhAgg).map(([k,v]) => ({
-        name: k, revenue: v.revenue, packages: v.packages,
-        salerate: v.total_salerate
-    })).sort((a,b) => b.salerate - a.salerate);
+    return calcSRByGroup(detailData, 'Nganh_hang').map(x => ({ name: x.label, ...x }));
 }
 
 function renderOverallAssessment() {
@@ -645,15 +653,15 @@ function renderSalonAssessment() {
     const s = DATA.salon_summary.find(x => x.Salon_name === salon);
     const total = DATA.salon_summary.length;
 
-    // Sale Rate theo ngành hàng cho salon này (tổng SR dịch vụ con)
+    // Sale Rate theo ngành hàng cho salon này
     const salonDetail = DATA.salon_detail.filter(x => x.Salon_name === salon);
     const nhItems = calcNganhHangSR(salonDetail);
-    const salonTotalSR = nhItems.reduce((sum, n) => sum + n.salerate, 0);
+    const salonTotalSR = calcSR(salonDetail);
 
-    // Rank salon theo tổng SR
+    // Rank salon theo SR
     const allSalonSR = DATA.salons.map(sn => {
         const detail = DATA.salon_detail.filter(x => x.Salon_name === sn);
-        return { name: sn, totalSR: detail.reduce((sum, r) => sum + r.avg_salerate, 0) };
+        return { name: sn, totalSR: calcSR(detail) };
     }).sort((a,b) => b.totalSR - a.totalSR);
     const rank = allSalonSR.findIndex(x => x.name === salon) + 1;
 
