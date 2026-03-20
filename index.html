@@ -375,10 +375,23 @@ function renderCharts() {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
 
-    // Sale Rate bar - horizontal (vertical list)
-    const srItems = [...items].sort((a,b) => a.avg_salerate - b.avg_salerate);
+    // Sale Rate bar - always group by service Name
+    const service = getSelectedService();
+    let srFiltered = DATA.salon_detail;
+    if (salon !== 'all') srFiltered = srFiltered.filter(x => x.Salon_name === salon);
+    if (service !== 'all') srFiltered = srFiltered.filter(x => x.Name === service);
+    const srAgg = {};
+    srFiltered.forEach(row => {
+        const key = row.Name;
+        if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, sr_sum: 0 };
+        srAgg[key].packages += row.total_packages;
+        srAgg[key].sr_sum += row.avg_salerate * row.total_packages;
+    });
+    const srItems = Object.values(srAgg).map(a => ({
+        ...a, avg_salerate: a.packages > 0 ? a.sr_sum / a.packages : 0
+    })).sort((a,b) => a.avg_salerate - b.avg_salerate);
     const srLabels = srItems.map(i => i.label);
-    const srHeight = Math.max(300, srItems.length * 35);
+    const srHeight = Math.max(300, srItems.length * 32);
     document.getElementById('chartSaleRateWrap').style.height = srHeight + 'px';
     charts.salerate = new Chart(document.getElementById('chartSaleRate'), {
         type: 'bar',
