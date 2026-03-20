@@ -414,7 +414,7 @@ function renderCharts() {
     });
     const srItems = Object.values(srAgg).map(a => ({
         ...a, avg_salerate: a.total_salerate
-    })).sort((a,b) => a.avg_salerate - b.avg_salerate);
+    })).sort((a,b) => b.avg_salerate - a.avg_salerate);
     const srLabels = srItems.map(i => i.label);
     const srHeight = Math.max(300, srItems.length * 32);
     document.getElementById('chartSaleRateWrap').style.height = srHeight + 'px';
@@ -433,9 +433,35 @@ function renderCharts() {
             indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.x.toFixed(2) + '%' } } },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ctx.parsed.x.toFixed(2) + '%' } },
+                datalabels: {
+                    anchor: 'end',
+                    align: 'right',
+                    formatter: v => v.toFixed(2) + '%',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#333',
+                }
+            },
             scales: { x: { title: { display: true, text: 'Sale Rate (%)' }, beginAtZero: true }, y: { ticks: { font: { size: 11 } } } }
-        }
+        },
+        plugins: [{
+            id: 'saleRateLabels',
+            afterDatasetsDraw(chart) {
+                const { ctx } = chart;
+                chart.data.datasets[0].data.forEach((val, i) => {
+                    const meta = chart.getDatasetMeta(0).data[i];
+                    ctx.save();
+                    ctx.font = 'bold 11px Segoe UI';
+                    ctx.fillStyle = '#333';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(val.toFixed(2) + '%', meta.x + 6, meta.y);
+                    ctx.restore();
+                });
+            }
+        }]
     });
 
     // Revenue bar
