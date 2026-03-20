@@ -101,7 +101,12 @@
             <select id="viewMode">
                 <option value="nganh_hang">Ngành hàng (DV_SC / Relax_Spa / DV_UND)</option>
                 <option value="category">Nhóm dịch vụ (main_p_Category)</option>
-                <option value="sub_category">Loại dịch vụ chi tiết (main_Category)</option>
+            </select>
+        </div>
+        <div>
+            <label>Lọc theo dịch vụ:</label><br>
+            <select id="serviceSelect">
+                <option value="all">-- Tất cả dịch vụ --</option>
             </select>
         </div>
         <div>
@@ -112,9 +117,9 @@
 
     <!-- Charts -->
     <div class="charts-grid">
-        <div class="chart-card">
+        <div class="chart-card full">
             <h3 id="chartTitle1">Sale Rate theo cơ cấu dịch vụ</h3>
-            <div class="chart-container"><canvas id="chartSaleRate"></canvas></div>
+            <div class="chart-container" id="chartSaleRateWrap" style="position:relative;"><canvas id="chartSaleRate"></canvas></div>
         </div>
         <div class="chart-card">
             <h3 id="chartTitle2">Doanh thu theo cơ cấu dịch vụ</h3>
@@ -210,6 +215,7 @@ function loadData() {
 
 function init() {
     populateSalonSelect();
+    populateServiceSelect();
     renderKPIs();
     renderOverallAssessment();
     renderCharts();
@@ -218,12 +224,23 @@ function init() {
 
     document.getElementById('salonSelect').addEventListener('change', onFilterChange);
     document.getElementById('viewMode').addEventListener('change', onFilterChange);
+    document.getElementById('serviceSelect').addEventListener('change', onFilterChange);
     document.getElementById('salonSearch').addEventListener('input', onSearch);
 }
 
 function populateSalonSelect() {
     const sel = document.getElementById('salonSelect');
     DATA.salons.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sel.appendChild(opt);
+    });
+}
+
+function populateServiceSelect() {
+    const sel = document.getElementById('serviceSelect');
+    const services = [...new Set(DATA.salon_detail.map(d => d.Name))].sort();
+    services.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s; opt.textContent = s;
         sel.appendChild(opt);
@@ -252,13 +269,30 @@ function onFilterChange() {
 
 function getSelectedSalon() { return document.getElementById('salonSelect').value; }
 function getViewMode() { return document.getElementById('viewMode').value; }
+function getSelectedService() { return document.getElementById('serviceSelect').value; }
 
 function renderKPIs() {
     const salon = getSelectedSalon();
+    const service = getSelectedService();
     let stats;
-    if (salon === 'all') {
-        stats = DATA.overall;
-        stats.label = 'Tất cả Salon';
+
+    if (service !== 'all') {
+        // Filter by service (and optionally salon)
+        let filtered = DATA.salon_detail.filter(x => x.Name === service);
+        if (salon !== 'all') filtered = filtered.filter(x => x.Salon_name === salon);
+        const totalPkg = filtered.reduce((s,r) => s + r.total_packages, 0);
+        const totalRev = filtered.reduce((s,r) => s + r.total_revenue, 0);
+        const wSR = totalPkg > 0 ? filtered.reduce((s,r) => s + r.avg_salerate * r.total_packages, 0) / totalPkg : 0;
+        stats = {
+            total_salons: new Set(filtered.map(r => r.Salon_name)).size,
+            total_revenue: totalRev,
+            total_packages: totalPkg,
+            avg_salerate: wSR,
+            total_services: 1,
+            label: (salon === 'all' ? 'Tất cả Salon' : salon) + ' | ' + service
+        };
+    } else if (salon === 'all') {
+        stats = { ...DATA.overall, label: 'Tất cả Salon' };
     } else {
         const s = DATA.salon_summary.find(x => x.Salon_name === salon);
         stats = {
@@ -298,20 +332,19 @@ function renderKPIs() {
 function getChartData() {
     const salon = getSelectedSalon();
     const mode = getViewMode();
-    let sourceData, groupKey;
+    const service = getSelectedService();
 
+    // Always use detail data to support service filtering
+    let filtered = DATA.salon_detail;
+    if (salon !== 'all') filtered = filtered.filter(x => x.Salon_name === salon);
+    if (service !== 'all') filtered = filtered.filter(x => x.Name === service);
+
+    let groupKey;
     if (mode === 'nganh_hang') {
-        sourceData = DATA.salon_nganh;
         groupKey = 'Nganh_hang';
-    } else if (mode === 'category') {
-        sourceData = DATA.salon_cat;
-        groupKey = 'main_p_Category_name';
     } else {
-        sourceData = DATA.salon_subcat;
-        groupKey = 'main_Category_name';
+        groupKey = 'main_p_Category_name';
     }
-
-    let filtered = salon === 'all' ? sourceData : sourceData.filter(x => x.Salon_name === salon);
 
     // Aggregate by groupKey
     const agg = {};
@@ -342,22 +375,28 @@ function renderCharts() {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
 
-    // Sale Rate bar
+    // Sale Rate bar - horizontal (vertical list)
+    const srItems = [...items].sort((a,b) => a.avg_salerate - b.avg_salerate);
+    const srLabels = srItems.map(i => i.label);
+    const srHeight = Math.max(300, srItems.length * 35);
+    document.getElementById('chartSaleRateWrap').style.height = srHeight + 'px';
     charts.salerate = new Chart(document.getElementById('chartSaleRate'), {
         type: 'bar',
         data: {
-            labels,
+            labels: srLabels,
             datasets: [{
                 label: 'Sale Rate',
-                data: items.map(i => (i.avg_salerate * 100)),
-                backgroundColor: items.map((_, idx) => COLORS[idx % COLORS.length]),
-                borderRadius: 6,
+                data: srItems.map(i => (i.avg_salerate * 100)),
+                backgroundColor: srItems.map(i => i.avg_salerate >= 0.1 ? '#22c55e' : i.avg_salerate >= 0.03 ? '#f59e0b' : '#ef4444'),
+                borderRadius: 4,
             }]
         },
         options: {
+            indexAxis: 'y',
             responsive: true,
-            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + '%' } } },
-            scales: { y: { title: { display: true, text: 'Sale Rate (%)' }, beginAtZero: true }, x: { ticks: { maxRotation: 45, font: { size: 10 } } } }
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.x.toFixed(2) + '%' } } },
+            scales: { x: { title: { display: true, text: 'Sale Rate (%)' }, beginAtZero: true }, y: { ticks: { font: { size: 11 } } } }
         }
     });
 
@@ -587,7 +626,10 @@ function renderSalonAssessment() {
 
 function renderTable() {
     const salon = getSelectedSalon();
-    let data = salon === 'all' ? DATA.salon_detail : DATA.salon_detail.filter(x => x.Salon_name === salon);
+    const service = getSelectedService();
+    let data = DATA.salon_detail;
+    if (salon !== 'all') data = data.filter(x => x.Salon_name === salon);
+    if (service !== 'all') data = data.filter(x => x.Name === service);
     data = data.sort((a,b) => b.avg_salerate - a.avg_salerate).slice(0, 100);
     const maxRate = Math.max(...data.map(d => d.avg_salerate), 0.01);
 
