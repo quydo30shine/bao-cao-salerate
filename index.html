@@ -105,9 +105,9 @@
             </select>
         </div>
         <div>
-            <label>Lọc theo dịch vụ:</label><br>
+            <label id="filterLabel">Lọc theo:</label><br>
             <select id="serviceSelect">
-                <option value="all">-- Tất cả dịch vụ --</option>
+                <option value="all">-- Tất cả --</option>
             </select>
         </div>
         <div>
@@ -216,7 +216,7 @@ function loadData() {
 
 function init() {
     populateSalonSelect();
-    populateServiceSelect();
+    populateFilterSelect();
     renderKPIs();
     renderOverallAssessment();
     renderCharts();
@@ -224,7 +224,7 @@ function init() {
     renderTable();
 
     document.getElementById('salonSelect').addEventListener('change', onFilterChange);
-    document.getElementById('viewMode').addEventListener('change', onFilterChange);
+    document.getElementById('viewMode').addEventListener('change', onViewModeChange);
     document.getElementById('serviceSelect').addEventListener('change', onFilterChange);
     document.getElementById('salonSearch').addEventListener('input', onSearch);
 }
@@ -238,10 +238,27 @@ function populateSalonSelect() {
     });
 }
 
-function populateServiceSelect() {
+function populateFilterSelect() {
+    const mode = getViewMode();
     const sel = document.getElementById('serviceSelect');
-    const services = [...new Set(DATA.salon_detail.map(d => d.Name))].sort();
-    services.forEach(s => {
+    const label = document.getElementById('filterLabel');
+
+    // Clear old options
+    sel.innerHTML = '<option value="all">-- Tất cả --</option>';
+
+    let items;
+    if (mode === 'nganh_hang') {
+        label.textContent = 'Lọc theo ngành hàng:';
+        items = [...new Set(DATA.salon_detail.map(d => d.Nganh_hang))].sort();
+    } else if (mode === 'category') {
+        label.textContent = 'Lọc theo nhóm DV:';
+        items = [...new Set(DATA.salon_detail.map(d => d.main_p_Category_name))].sort();
+    } else {
+        label.textContent = 'Lọc theo dịch vụ:';
+        items = [...new Set(DATA.salon_detail.map(d => d.Name))].sort();
+    }
+
+    items.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s; opt.textContent = s;
         sel.appendChild(opt);
@@ -261,6 +278,11 @@ function onSearch(e) {
     });
 }
 
+function onViewModeChange() {
+    populateFilterSelect();
+    onFilterChange();
+}
+
 function onFilterChange() {
     renderKPIs();
     renderCharts();
@@ -277,19 +299,18 @@ function renderKPIs() {
     const service = getSelectedService();
     let stats;
 
+    const mode = getViewMode();
     if (service !== 'all') {
-        // Filter by service (and optionally salon)
-        let filtered = DATA.salon_detail.filter(x => x.Name === service);
+        const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
+        let filtered = DATA.salon_detail.filter(x => x[filterKey] === service);
         if (salon !== 'all') filtered = filtered.filter(x => x.Salon_name === salon);
         const totalPkg = filtered.reduce((s,r) => s + r.total_packages, 0);
         const totalRev = filtered.reduce((s,r) => s + r.total_revenue, 0);
-        const wSR = totalPkg > 0 ? filtered.reduce((s,r) => s + r.avg_salerate * r.total_packages, 0) / totalPkg : 0;
         stats = {
             total_salons: new Set(filtered.map(r => r.Salon_name)).size,
             total_revenue: totalRev,
             total_packages: totalPkg,
-            avg_salerate: wSR,
-            total_services: 1,
+            total_services: new Set(filtered.map(r => r.Name)).size,
             label: (salon === 'all' ? 'Tất cả Salon' : salon) + ' | ' + service
         };
     } else if (salon === 'all') {
@@ -330,10 +351,13 @@ function getChartData() {
     const mode = getViewMode();
     const service = getSelectedService();
 
-    // Always use detail data to support service filtering
+    // Filter by salon and selected filter value (based on viewMode)
     let filtered = DATA.salon_detail;
     if (salon !== 'all') filtered = filtered.filter(x => x.Salon_name === salon);
-    if (service !== 'all') filtered = filtered.filter(x => x.Name === service);
+    if (service !== 'all') {
+        const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
+        filtered = filtered.filter(x => x[filterKey] === service);
+    }
 
     let groupKey;
     if (mode === 'nganh_hang') {
@@ -372,14 +396,19 @@ function renderCharts() {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
 
-    // Sale Rate bar - always group by service Name, tổng SR
+    // Sale Rate bar - group by viewMode, tổng SR
+    const mode = getViewMode();
     const service = getSelectedService();
     let srFiltered = DATA.salon_detail;
     if (salon !== 'all') srFiltered = srFiltered.filter(x => x.Salon_name === salon);
-    if (service !== 'all') srFiltered = srFiltered.filter(x => x.Name === service);
+    if (service !== 'all') {
+        const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
+        srFiltered = srFiltered.filter(x => x[filterKey] === service);
+    }
+    const srGroupKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
     const srAgg = {};
     srFiltered.forEach(row => {
-        const key = row.Name;
+        const key = row[srGroupKey];
         if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, total_salerate: 0 };
         srAgg[key].packages += row.total_packages;
         srAgg[key].total_salerate += row.avg_salerate;
@@ -648,9 +677,13 @@ function renderSalonAssessment() {
 function renderTable() {
     const salon = getSelectedSalon();
     const service = getSelectedService();
+    const mode = getViewMode();
     let data = DATA.salon_detail;
     if (salon !== 'all') data = data.filter(x => x.Salon_name === salon);
-    if (service !== 'all') data = data.filter(x => x.Name === service);
+    if (service !== 'all') {
+        const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
+        data = data.filter(x => x[filterKey] === service);
+    }
     data = data.sort((a,b) => b.avg_salerate - a.avg_salerate).slice(0, 100);
     const maxRate = Math.max(...data.map(d => d.avg_salerate), 0.01);
 
