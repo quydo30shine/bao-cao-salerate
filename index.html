@@ -396,7 +396,7 @@ function renderCharts() {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
 
-    // Sale Rate bar - group by viewMode, tổng SR
+    // Sale Rate bar - luôn group theo Name, lọc theo viewMode filter
     const mode = getViewMode();
     const service = getSelectedService();
     let srFiltered = DATA.salon_detail;
@@ -405,10 +405,9 @@ function renderCharts() {
         const filterKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
         srFiltered = srFiltered.filter(x => x[filterKey] === service);
     }
-    const srGroupKey = mode === 'nganh_hang' ? 'Nganh_hang' : mode === 'category' ? 'main_p_Category_name' : 'Name';
     const srAgg = {};
     srFiltered.forEach(row => {
-        const key = row[srGroupKey];
+        const key = row.Name;
         if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, total_salerate: 0 };
         srAgg[key].packages += row.total_packages;
         srAgg[key].total_salerate += row.avg_salerate;
