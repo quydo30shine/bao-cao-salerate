@@ -318,11 +318,6 @@ function renderKPIs() {
             <div class="sub">${stats.total_services} dịch vụ</div>
         </div>
         <div class="kpi-card">
-            <div class="label">Sale Rate trung bình</div>
-            <div class="value">${formatPercent(stats.avg_salerate)}</div>
-            <div class="sub">${stats.avg_salerate >= 0.1 ? '🟢 Cao' : stats.avg_salerate >= 0.03 ? '🟡 Trung bình' : '🔴 Cần cải thiện'}</div>
-        </div>
-        <div class="kpi-card">
             <div class="label">${salon === 'all' ? 'Số salon' : 'DT/Khách TB'}</div>
             <div class="value">${salon === 'all' ? stats.total_salons : formatVND(DATA.salon_summary.find(x=>x.Salon_name===salon).avg_revenue_per_customer)}</div>
             <div class="sub">${salon === 'all' ? 'salon đang hoạt động' : 'VNĐ/khách'}</div>
@@ -349,20 +344,19 @@ function getChartData() {
         groupKey = 'Name';
     }
 
-    // Aggregate by groupKey
+    // Aggregate by groupKey - salerate = tổng SR dịch vụ con
     const agg = {};
     filtered.forEach(row => {
         const key = row[groupKey];
-        if (!agg[key]) agg[key] = { label: key, revenue: 0, packages: 0, salerate_sum: 0, count: 0 };
+        if (!agg[key]) agg[key] = { label: key, revenue: 0, packages: 0, total_salerate: 0 };
         agg[key].revenue += row.total_revenue;
         agg[key].packages += row.total_packages;
-        agg[key].salerate_sum += row.avg_salerate * row.total_packages;
-        agg[key].count += row.total_packages;
+        agg[key].total_salerate += row.avg_salerate;
     });
 
     const items = Object.values(agg).map(a => ({
         ...a,
-        avg_salerate: a.count > 0 ? a.salerate_sum / a.count : 0
+        avg_salerate: a.total_salerate
     })).sort((a,b) => b.revenue - a.revenue);
 
     return { items, groupKey };
@@ -378,7 +372,7 @@ function renderCharts() {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
 
-    // Sale Rate bar - always group by service Name
+    // Sale Rate bar - always group by service Name, tổng SR
     const service = getSelectedService();
     let srFiltered = DATA.salon_detail;
     if (salon !== 'all') srFiltered = srFiltered.filter(x => x.Salon_name === salon);
@@ -386,12 +380,12 @@ function renderCharts() {
     const srAgg = {};
     srFiltered.forEach(row => {
         const key = row.Name;
-        if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, sr_sum: 0 };
+        if (!srAgg[key]) srAgg[key] = { label: key, packages: 0, total_salerate: 0 };
         srAgg[key].packages += row.total_packages;
-        srAgg[key].sr_sum += row.avg_salerate * row.total_packages;
+        srAgg[key].total_salerate += row.avg_salerate;
     });
     const srItems = Object.values(srAgg).map(a => ({
-        ...a, avg_salerate: a.packages > 0 ? a.sr_sum / a.packages : 0
+        ...a, avg_salerate: a.total_salerate
     })).sort((a,b) => a.avg_salerate - b.avg_salerate);
     const srLabels = srItems.map(i => i.label);
     const srHeight = Math.max(300, srItems.length * 32);
@@ -485,12 +479,17 @@ function renderCharts() {
 }
 
 function renderRanking() {
-    const sorted = [...DATA.salon_summary].sort((a,b) => b.weighted_salerate - a.weighted_salerate);
+    // Tổng SR per salon
+    const salonSRList = DATA.salons.map(sn => {
+        const detail = DATA.salon_detail.filter(x => x.Salon_name === sn);
+        return { Salon_name: sn, totalSR: detail.reduce((sum, r) => sum + r.avg_salerate, 0) };
+    });
+    const sorted = salonSRList.sort((a,b) => b.totalSR - a.totalSR);
     const top20 = sorted.slice(0, 20);
     const bottom10 = sorted.slice(-10).reverse();
     const combined = [...top20, ...bottom10];
     const labels = combined.map(s => s.Salon_name);
-    const values = combined.map(s => s.weighted_salerate * 100);
+    const values = combined.map(s => s.totalSR * 100);
     const colors = combined.map((s, i) => i < 20 ? '#22c55e' : '#ef4444');
 
     if (charts.ranking) charts.ranking.destroy();
@@ -521,62 +520,64 @@ function renderRanking() {
     });
 }
 
-function renderOverallAssessment() {
-    const summaries = DATA.salon_summary;
-    const highPerf = summaries.filter(s => s.weighted_salerate >= 0.1);
-    const midPerf = summaries.filter(s => s.weighted_salerate >= 0.03 && s.weighted_salerate < 0.1);
-    const lowPerf = summaries.filter(s => s.weighted_salerate < 0.03);
-
-    const topSalon = summaries.reduce((a,b) => a.weighted_salerate > b.weighted_salerate ? a : b);
-    const bottomSalon = summaries.reduce((a,b) => a.weighted_salerate < b.weighted_salerate ? a : b);
-    const topRevenue = summaries.reduce((a,b) => a.total_revenue > b.total_revenue ? a : b);
-
-    // Nganh hang analysis
+// Sale Rate ngành hàng = tổng Sale Rate các dịch vụ con
+function calcNganhHangSR(detailData) {
     const nhAgg = {};
-    DATA.salon_nganh.forEach(r => {
-        if (!nhAgg[r.Nganh_hang]) nhAgg[r.Nganh_hang] = { revenue: 0, packages: 0, sr_sum: 0, cnt: 0 };
-        nhAgg[r.Nganh_hang].revenue += r.total_revenue;
-        nhAgg[r.Nganh_hang].packages += r.total_packages;
-        nhAgg[r.Nganh_hang].sr_sum += r.avg_salerate * r.total_packages;
-        nhAgg[r.Nganh_hang].cnt += r.total_packages;
+    detailData.forEach(r => {
+        const nh = r.Nganh_hang;
+        if (!nhAgg[nh]) nhAgg[nh] = { revenue: 0, packages: 0, total_salerate: 0 };
+        nhAgg[nh].revenue += r.total_revenue;
+        nhAgg[nh].packages += r.total_packages;
+        nhAgg[nh].total_salerate += r.avg_salerate;
     });
-
-    const nhItems = Object.entries(nhAgg).map(([k,v]) => ({
+    return Object.entries(nhAgg).map(([k,v]) => ({
         name: k, revenue: v.revenue, packages: v.packages,
-        salerate: v.cnt > 0 ? v.sr_sum/v.cnt : 0
+        salerate: v.total_salerate
     })).sort((a,b) => b.salerate - a.salerate);
+}
+
+function renderOverallAssessment() {
+    const topRevenue = DATA.salon_summary.reduce((a,b) => a.total_revenue > b.total_revenue ? a : b);
+
+    // Sale Rate theo ngành hàng = tổng salerate dịch vụ con
+    const nhItems = calcNganhHangSR(DATA.salon_detail);
+    const totalSR = nhItems.reduce((s,n) => s + n.salerate, 0);
+    const bestNH = nhItems[0];
+    const worstNH = nhItems[nhItems.length - 1];
 
     document.getElementById('assessmentContent').innerHTML = `
         <div class="assessment-item info">
-            <h4>📈 Phân bổ hiệu suất Salon</h4>
-            <p><strong>${highPerf.length}</strong> salon Sale Rate cao (≥10%)<br>
-            <strong>${midPerf.length}</strong> salon Sale Rate trung bình (3-10%)<br>
-            <strong>${lowPerf.length}</strong> salon Sale Rate thấp (<3%)</p>
+            <h4>📊 Sale Rate theo Ngành hàng</h4>
+            <p>${nhItems.map(n => {
+                const pct = (n.salerate / totalSR * 100).toFixed(1);
+                return `<strong>${n.name}</strong>: SR <strong>${formatPercent(n.salerate)}</strong> (chiếm ${pct}% tổng SR) | DT ${formatVND(n.revenue)} | ${n.packages.toLocaleString()} gói`;
+            }).join('<br>')}</p>
         </div>
         <div class="assessment-item good">
-            <h4>🏆 Salon dẫn đầu Sale Rate</h4>
-            <p><strong>${topSalon.Salon_name}</strong> với Sale Rate <strong>${formatPercent(topSalon.weighted_salerate)}</strong><br>
-            Doanh thu: ${formatVND(topSalon.total_revenue)} | ${topSalon.total_packages.toLocaleString()} gói</p>
+            <h4>🏆 Ngành hàng Sale Rate cao nhất</h4>
+            <p><strong>${bestNH.name}</strong> với tổng Sale Rate <strong>${formatPercent(bestNH.salerate)}</strong><br>
+            Doanh thu: ${formatVND(bestNH.revenue)} | ${bestNH.packages.toLocaleString()} gói</p>
         </div>
         <div class="assessment-item bad">
-            <h4>⚠️ Salon cần cải thiện nhất</h4>
-            <p><strong>${bottomSalon.Salon_name}</strong> với Sale Rate <strong>${formatPercent(bottomSalon.weighted_salerate)}</strong><br>
-            Doanh thu: ${formatVND(bottomSalon.total_revenue)} | ${bottomSalon.total_packages.toLocaleString()} gói</p>
+            <h4>⚠️ Ngành hàng Sale Rate thấp nhất</h4>
+            <p><strong>${worstNH.name}</strong> với tổng Sale Rate <strong>${formatPercent(worstNH.salerate)}</strong><br>
+            Doanh thu: ${formatVND(worstNH.revenue)} | ${worstNH.packages.toLocaleString()} gói</p>
         </div>
         <div class="assessment-item warning">
             <h4>💰 Salon doanh thu cao nhất</h4>
             <p><strong>${topRevenue.Salon_name}</strong> với doanh thu <strong>${formatVND(topRevenue.total_revenue)}</strong><br>
-            Sale Rate: ${formatPercent(topRevenue.weighted_salerate)} | ${topRevenue.total_packages.toLocaleString()} gói</p>
+            ${topRevenue.total_packages.toLocaleString()} gói</p>
         </div>
         <div class="assessment-item info">
-            <h4>📊 Sale Rate theo Ngành hàng</h4>
-            <p>${nhItems.map(n => `<strong>${n.name}</strong>: SR ${formatPercent(n.salerate)} | DT ${formatVND(n.revenue)}`).join('<br>')}</p>
+            <h4>📈 Tổng Sale Rate toàn hệ thống</h4>
+            <p>Tổng Sale Rate: <strong>${formatPercent(totalSR)}</strong><br>
+            ${nhItems.map(n => `${n.name}: ${formatPercent(n.salerate)}`).join(' + ')} = ${formatPercent(totalSR)}</p>
         </div>
-        <div class="assessment-item ${lowPerf.length > summaries.length * 0.5 ? 'bad' : 'good'}">
+        <div class="assessment-item ${worstNH.salerate < bestNH.salerate * 0.3 ? 'bad' : 'good'}">
             <h4>🎯 Nhận xét chung</h4>
-            <p>${lowPerf.length > summaries.length * 0.5
-                ? 'Hơn 50% salon có Sale Rate dưới 3%. Cần tập trung đào tạo kỹ năng bán dịch vụ và review quy trình tư vấn tại các salon có Sale Rate thấp.'
-                : 'Đa số salon duy trì Sale Rate ở mức trung bình-khá. Tập trung nhân rộng mô hình từ các salon có Sale Rate cao nhất.'}</p>
+            <p>${worstNH.salerate < bestNH.salerate * 0.3
+                ? `Ngành ${worstNH.name} có Sale Rate chênh lệch lớn so với ${bestNH.name}. Cần tập trung đẩy mạnh tư vấn và bán dịch vụ nhóm ${worstNH.name}.`
+                : 'Các ngành hàng có Sale Rate khá đồng đều. Duy trì và tiếp tục cải thiện.'}</p>
         </div>
     `;
 }
@@ -588,23 +589,29 @@ function renderSalonAssessment() {
     panel.style.display = '';
 
     const s = DATA.salon_summary.find(x => x.Salon_name === salon);
-    const rank = [...DATA.salon_summary].sort((a,b) => b.weighted_salerate - a.weighted_salerate).findIndex(x => x.Salon_name === salon) + 1;
     const total = DATA.salon_summary.length;
 
-    // Best/worst category for this salon
-    const cats = DATA.salon_cat.filter(x => x.Salon_name === salon).sort((a,b) => b.avg_salerate - a.avg_salerate);
-    const bestCat = cats[0];
-    const worstCat = cats[cats.length - 1];
+    // Sale Rate theo ngành hàng cho salon này (tổng SR dịch vụ con)
+    const salonDetail = DATA.salon_detail.filter(x => x.Salon_name === salon);
+    const nhItems = calcNganhHangSR(salonDetail);
+    const salonTotalSR = nhItems.reduce((sum, n) => sum + n.salerate, 0);
 
-    // Nganh hang for this salon
-    const nhs = DATA.salon_nganh.filter(x => x.Salon_name === salon);
+    // Rank salon theo tổng SR
+    const allSalonSR = DATA.salons.map(sn => {
+        const detail = DATA.salon_detail.filter(x => x.Salon_name === sn);
+        return { name: sn, totalSR: detail.reduce((sum, r) => sum + r.avg_salerate, 0) };
+    }).sort((a,b) => b.totalSR - a.totalSR);
+    const rank = allSalonSR.findIndex(x => x.name === salon) + 1;
+
+    const bestNH = nhItems[0];
+    const worstNH = nhItems[nhItems.length - 1];
 
     document.getElementById('salonAssessmentTitle').textContent = `🏪 Đánh Giá: ${salon}`;
     document.getElementById('salonAssessmentContent').innerHTML = `
         <div class="assessment-item ${rank <= total*0.25 ? 'good' : rank <= total*0.5 ? 'warning' : 'bad'}">
-            <h4>📊 Xếp hạng Sale Rate</h4>
+            <h4>📊 Xếp hạng Salon</h4>
             <p>Hạng <strong>#${rank}/${total}</strong> salon<br>
-            Sale Rate: <strong>${formatPercent(s.weighted_salerate)}</strong><br>
+            Tổng Sale Rate: <strong>${formatPercent(salonTotalSR)}</strong><br>
             ${rank <= 10 ? '🌟 Top 10 salon tốt nhất!' : rank > total - 10 ? '⚠️ Nằm trong nhóm 10 salon cần cải thiện' : 'Nhóm trung bình'}</p>
         </div>
         <div class="assessment-item info">
@@ -613,29 +620,27 @@ function renderSalonAssessment() {
             Số gói: <strong>${s.total_packages.toLocaleString()}</strong><br>
             DT/Khách TB: <strong>${formatVND(s.avg_revenue_per_customer)}</strong></p>
         </div>
+        <div class="assessment-item info">
+            <h4>📋 Sale Rate theo Ngành hàng</h4>
+            <p>${nhItems.map(n => `<strong>${n.name}</strong>: SR <strong>${formatPercent(n.salerate)}</strong> | DT ${formatVND(n.revenue)} | ${n.packages.toLocaleString()} gói`).join('<br>')}</p>
+        </div>
         <div class="assessment-item good">
-            <h4>✅ Nhóm DV mạnh nhất</h4>
-            <p><strong>${bestCat ? bestCat.main_p_Category_name : 'N/A'}</strong><br>
-            Sale Rate: ${bestCat ? formatPercent(bestCat.avg_salerate) : 'N/A'}<br>
-            Doanh thu: ${bestCat ? formatVND(bestCat.total_revenue) : 'N/A'}</p>
+            <h4>✅ Ngành hàng mạnh nhất</h4>
+            <p><strong>${bestNH ? bestNH.name : 'N/A'}</strong>: SR ${bestNH ? formatPercent(bestNH.salerate) : 'N/A'}<br>
+            Doanh thu: ${bestNH ? formatVND(bestNH.revenue) : 'N/A'}</p>
         </div>
         <div class="assessment-item bad">
-            <h4>❌ Nhóm DV cần cải thiện</h4>
-            <p><strong>${worstCat ? worstCat.main_p_Category_name : 'N/A'}</strong><br>
-            Sale Rate: ${worstCat ? formatPercent(worstCat.avg_salerate) : 'N/A'}<br>
-            Doanh thu: ${worstCat ? formatVND(worstCat.total_revenue) : 'N/A'}</p>
+            <h4>❌ Ngành hàng cần cải thiện</h4>
+            <p><strong>${worstNH ? worstNH.name : 'N/A'}</strong>: SR ${worstNH ? formatPercent(worstNH.salerate) : 'N/A'}<br>
+            Doanh thu: ${worstNH ? formatVND(worstNH.revenue) : 'N/A'}</p>
         </div>
-        <div class="assessment-item info">
-            <h4>📋 Phân bổ theo Ngành hàng</h4>
-            <p>${nhs.map(n => `<strong>${n.Nganh_hang}</strong>: SR ${formatPercent(n.avg_salerate)} | DT ${formatVND(n.total_revenue)} | ${n.total_packages} gói`).join('<br>')}</p>
-        </div>
-        <div class="assessment-item ${s.weighted_salerate >= 0.1 ? 'good' : s.weighted_salerate >= 0.03 ? 'warning' : 'bad'}">
+        <div class="assessment-item ${rank <= total*0.25 ? 'good' : rank > total*0.75 ? 'bad' : 'warning'}">
             <h4>🎯 Khuyến nghị</h4>
-            <p>${s.weighted_salerate >= 0.1
+            <p>${rank <= total*0.25
                 ? 'Salon hoạt động tốt. Duy trì và chia sẻ kinh nghiệm cho các salon khác.'
-                : s.weighted_salerate >= 0.03
-                    ? 'Sale Rate ở mức trung bình. Cần tăng cường tư vấn dịch vụ, đặc biệt nhóm ' + (worstCat ? worstCat.main_p_Category_name : '') + '.'
-                    : 'Sale Rate thấp. Cần review lại quy trình tư vấn, đào tạo nhân viên và xem xét danh mục dịch vụ phù hợp.'}</p>
+                : rank <= total*0.5
+                    ? 'Sale Rate ở mức khá. Cần tăng cường tư vấn dịch vụ nhóm ' + (worstNH ? worstNH.name : '') + ' để cải thiện.'
+                    : 'Sale Rate thấp. Cần review lại quy trình tư vấn, đào tạo nhân viên và đẩy mạnh nhóm ' + (worstNH ? worstNH.name : '') + '.'}</p>
         </div>
     `;
 }
