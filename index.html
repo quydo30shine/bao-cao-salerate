@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Báo Cáo Sale Rate Dịch Vụ</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; color: #333; }
+
+        .header { background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460); color: white; padding: 24px 32px; }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+        /* KPI Cards */
+        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .kpi-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .kpi-card .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-card .value { font-size: 28px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }
+        .kpi-card .sub { font-size: 12px; color: #aaa; margin-top: 2px; }
+
+        /* Controls */
+        .controls { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+        .controls label { font-size: 13px; font-weight: 600; color: #555; }
+        .controls select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; min-width: 200px; background: #f8f9fa; }
+        .controls select:focus { outline: none; border-color: #0f3460; }
+
+        /* Charts grid */
+        .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+        .chart-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .chart-card.full { grid-column: 1 / -1; }
+        .chart-card h3 { font-size: 15px; color: #1a1a2e; margin-bottom: 12px; font-weight: 600; }
+        .chart-container { position: relative; width: 100%; }
+
+        /* Assessment */
+        .assessment { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px; }
+        .assessment h3 { font-size: 16px; color: #1a1a2e; margin-bottom: 12px; }
+        .assessment-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .assessment-item { padding: 14px; border-radius: 8px; background: #f8f9fa; }
+        .assessment-item.good { border-left: 4px solid #22c55e; }
+        .assessment-item.warning { border-left: 4px solid #f59e0b; }
+        .assessment-item.bad { border-left: 4px solid #ef4444; }
+        .assessment-item.info { border-left: 4px solid #3b82f6; }
+        .assessment-item h4 { font-size: 13px; color: #555; margin-bottom: 4px; }
+        .assessment-item p { font-size: 13px; color: #333; line-height: 1.5; }
+
+        /* Table */
+        .table-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px; overflow-x: auto; }
+        .table-card h3 { font-size: 15px; color: #1a1a2e; margin-bottom: 12px; font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f0f2f5; padding: 10px 12px; text-align: left; font-weight: 600; color: #555; position: sticky; top: 0; }
+        td { padding: 8px 12px; border-bottom: 1px solid #f0f2f5; }
+        tr:hover td { background: #f8f9fa; }
+        .salerate-bar { display: inline-block; height: 8px; border-radius: 4px; margin-right: 8px; vertical-align: middle; }
+        .text-right { text-align: right; }
+
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-green { background: #dcfce7; color: #16a34a; }
+        .badge-yellow { background: #fef3c7; color: #d97706; }
+        .badge-red { background: #fee2e2; color: #dc2626; }
+
+        .search-input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; min-width: 200px; }
+
+        @media (max-width: 768px) {
+            .charts-grid { grid-template-columns: 1fr; }
+            .assessment-content { grid-template-columns: 1fr; }
+            .controls { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>📊 Dashboard Báo Cáo Sale Rate Dịch Vụ</h1>
+    <p>Dữ liệu từ 01/03/2026 - 20/03/2026 | Phân tích Sale Rate theo Salon & Ngành hàng dịch vụ</p>
+</div>
+
+<div class="container">
+    <!-- KPI Row -->
+    <div class="kpi-row" id="kpiRow"></div>
+
+    <!-- Overall Assessment -->
+    <div class="assessment" id="overallAssessment">
+        <h3>🔍 Đánh Giá Tổng Quan</h3>
+        <div class="assessment-content" id="assessmentContent"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div>
+            <label>Chọn Salon:</label><br>
+            <select id="salonSelect">
+                <option value="all">-- Tất cả Salon --</option>
+            </select>
+        </div>
+        <div>
+            <label>Cơ cấu xem theo:</label><br>
+            <select id="viewMode">
+                <option value="nganh_hang">Ngành hàng (DV_SC / Relax_Spa / DV_UND)</option>
+                <option value="category">Nhóm dịch vụ (main_p_Category)</option>
+                <option value="sub_category">Loại dịch vụ chi tiết (main_Category)</option>
+            </select>
+        </div>
+        <div>
+            <label>Tìm salon:</label><br>
+            <input type="text" id="salonSearch" class="search-input" placeholder="Nhập tên salon...">
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3 id="chartTitle1">Sale Rate theo cơ cấu dịch vụ</h3>
+            <div class="chart-container"><canvas id="chartSaleRate"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3 id="chartTitle2">Doanh thu theo cơ cấu dịch vụ</h3>
+            <div class="chart-container"><canvas id="chartRevenue"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3 id="chartTitle3">Số gói theo cơ cấu dịch vụ</h3>
+            <div class="chart-container"><canvas id="chartPackages"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3 id="chartTitle4">Cơ cấu doanh thu (%)</h3>
+            <div class="chart-container"><canvas id="chartPie"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Salon Assessment -->
+    <div class="assessment" id="salonAssessment" style="display:none;">
+        <h3 id="salonAssessmentTitle">🏪 Đánh Giá Salon</h3>
+        <div class="assessment-content" id="salonAssessmentContent"></div>
+    </div>
+
+    <!-- Top/Bottom Salon ranking -->
+    <div class="charts-grid">
+        <div class="chart-card full">
+            <h3>🏆 Xếp hạng Salon theo Sale Rate trung bình (có trọng số theo số gói)</h3>
+            <div class="chart-container" style="height: 500px;"><canvas id="chartRanking"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Detail Table -->
+    <div class="table-card">
+        <h3 id="tableTitle">📋 Chi Tiết Dịch Vụ</h3>
+        <div style="max-height: 500px; overflow-y: auto;">
+            <table id="detailTable">
+                <thead><tr>
+                    <th>Salon</th>
+                    <th>Ngành hàng</th>
+                    <th>Nhóm DV</th>
+                    <th>Loại DV</th>
+                    <th>Tên dịch vụ</th>
+                    <th class="text-right">Doanh thu</th>
+                    <th class="text-right">Số gói</th>
+                    <th class="text-right">Sale Rate</th>
+                    <th class="text-right">DT/Khách</th>
+                </tr></thead>
+                <tbody id="detailBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let DATA = null;
+let charts = {};
+
+const COLORS = [
+    '#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899',
+    '#14b8a6','#f97316','#06b6d4','#84cc16','#6366f1','#e11d48',
+    '#0ea5e9','#10b981','#a855f7','#d946ef','#64748b','#78716c',
+    '#0d9488','#ca8a04','#dc2626'
+];
+
+function formatVND(v) {
+    if (v >= 1e9) return (v/1e9).toFixed(2) + ' tỷ';
+    if (v >= 1e6) return (v/1e6).toFixed(1) + ' tr';
+    if (v >= 1e3) return (v/1e3).toFixed(0) + 'k';
+    return v.toFixed(0);
+}
+
+function formatPercent(v) { return (v * 100).toFixed(2) + '%'; }
+
+function getSaleRateBadge(rate) {
+    if (rate >= 0.1) return '<span class="badge badge-green">Cao</span>';
+    if (rate >= 0.03) return '<span class="badge badge-yellow">TB</span>';
+    return '<span class="badge badge-red">Thấp</span>';
+}
+
+function getSaleRateBar(rate, maxRate) {
+    const w = Math.min((rate / maxRate) * 100, 100);
+    const color = rate >= 0.1 ? '#22c55e' : rate >= 0.03 ? '#f59e0b' : '#ef4444';
+    return `<span class="salerate-bar" style="width:${w}px;background:${color}"></span>`;
+}
+
+function loadData() {
+    fetch('data.json')
+        .then(r => r.json())
+        .then(data => { DATA = data; init(); })
+        .catch(() => {
+            // Try inline data
+            console.error('Could not load data.json');
+        });
+}
+
+function init() {
+    populateSalonSelect();
+    renderKPIs();
+    renderOverallAssessment();
+    renderCharts();
+    renderRanking();
+    renderTable();
+
+    document.getElementById('salonSelect').addEventListener('change', onFilterChange);
+    document.getElementById('viewMode').addEventListener('change', onFilterChange);
+    document.getElementById('salonSearch').addEventListener('input', onSearch);
+}
+
+function populateSalonSelect() {
+    const sel = document.getElementById('salonSelect');
+    DATA.salons.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sel.appendChild(opt);
+    });
+}
+
+function onSearch(e) {
+    const q = e.target.value.toLowerCase();
+    const sel = document.getElementById('salonSelect');
+    const opts = sel.querySelectorAll('option');
+    let firstMatch = null;
+    opts.forEach(o => {
+        if (o.value === 'all') return;
+        const match = o.textContent.toLowerCase().includes(q);
+        o.style.display = match ? '' : 'none';
+        if (match && !firstMatch) firstMatch = o.value;
+    });
+}
+
+function onFilterChange() {
+    renderKPIs();
+    renderCharts();
+    renderSalonAssessment();
+    renderTable();
+}
+
+function getSelectedSalon() { return document.getElementById('salonSelect').value; }
+function getViewMode() { return document.getElementById('viewMode').value; }
+
+function renderKPIs() {
+    const salon = getSelectedSalon();
+    let stats;
+    if (salon === 'all') {
+        stats = DATA.overall;
+        stats.label = 'Tất cả Salon';
+    } else {
+        const s = DATA.salon_summary.find(x => x.Salon_name === salon);
+        stats = {
+            total_salons: 1,
+            total_revenue: s.total_revenue,
+            total_packages: s.total_packages,
+            avg_salerate: s.weighted_salerate,
+            total_services: s.service_count,
+            label: salon
+        };
+    }
+
+    document.getElementById('kpiRow').innerHTML = `
+        <div class="kpi-card">
+            <div class="label">Tổng doanh thu</div>
+            <div class="value">${formatVND(stats.total_revenue)}</div>
+            <div class="sub">${stats.label}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Tổng số gói bán</div>
+            <div class="value">${stats.total_packages.toLocaleString()}</div>
+            <div class="sub">${stats.total_services} dịch vụ</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Sale Rate trung bình</div>
+            <div class="value">${formatPercent(stats.avg_salerate)}</div>
+            <div class="sub">${stats.avg_salerate >= 0.1 ? '🟢 Cao' : stats.avg_salerate >= 0.03 ? '🟡 Trung bình' : '🔴 Cần cải thiện'}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">${salon === 'all' ? 'Số salon' : 'DT/Khách TB'}</div>
+            <div class="value">${salon === 'all' ? stats.total_salons : formatVND(DATA.salon_summary.find(x=>x.Salon_name===salon).avg_revenue_per_customer)}</div>
+            <div class="sub">${salon === 'all' ? 'salon đang hoạt động' : 'VNĐ/khách'}</div>
+        </div>
+    `;
+}
+
+function getChartData() {
+    const salon = getSelectedSalon();
+    const mode = getViewMode();
+    let sourceData, groupKey;
+
+    if (mode === 'nganh_hang') {
+        sourceData = DATA.salon_nganh;
+        groupKey = 'Nganh_hang';
+    } else if (mode === 'category') {
+        sourceData = DATA.salon_cat;
+        groupKey = 'main_p_Category_name';
+    } else {
+        sourceData = DATA.salon_subcat;
+        groupKey = 'main_Category_name';
+    }
+
+    let filtered = salon === 'all' ? sourceData : sourceData.filter(x => x.Salon_name === salon);
+
+    // Aggregate by groupKey
+    const agg = {};
+    filtered.forEach(row => {
+        const key = row[groupKey];
+        if (!agg[key]) agg[key] = { label: key, revenue: 0, packages: 0, salerate_sum: 0, count: 0 };
+        agg[key].revenue += row.total_revenue;
+        agg[key].packages += row.total_packages;
+        agg[key].salerate_sum += row.avg_salerate * row.total_packages;
+        agg[key].count += row.total_packages;
+    });
+
+    const items = Object.values(agg).map(a => ({
+        ...a,
+        avg_salerate: a.count > 0 ? a.salerate_sum / a.count : 0
+    })).sort((a,b) => b.revenue - a.revenue);
+
+    return { items, groupKey };
+}
+
+function renderCharts() {
+    const { items } = getChartData();
+    const labels = items.map(i => i.label);
+    const salon = getSelectedSalon();
+    const prefix = salon === 'all' ? 'Tất cả' : salon;
+
+    // Destroy old charts
+    Object.values(charts).forEach(c => c.destroy && c.destroy());
+    charts = {};
+
+    // Sale Rate bar
+    charts.salerate = new Chart(document.getElementById('chartSaleRate'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Sale Rate',
+                data: items.map(i => (i.avg_salerate * 100)),
+                backgroundColor: items.map((_, idx) => COLORS[idx % COLORS.length]),
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + '%' } } },
+            scales: { y: { title: { display: true, text: 'Sale Rate (%)' }, beginAtZero: true }, x: { ticks: { maxRotation: 45, font: { size: 10 } } } }
+        }
+    });
+
+    // Revenue bar
+    charts.revenue = new Chart(document.getElementById('chartRevenue'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Doanh thu',
+                data: items.map(i => i.revenue),
+                backgroundColor: items.map((_, idx) => COLORS[idx % COLORS.length] + 'CC'),
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => formatVND(ctx.parsed.y) } } },
+            scales: { y: { title: { display: true, text: 'Doanh thu (VNĐ)' }, beginAtZero: true, ticks: { callback: v => formatVND(v) } }, x: { ticks: { maxRotation: 45, font: { size: 10 } } } }
+        }
+    });
+
+    // Packages bar
+    charts.packages = new Chart(document.getElementById('chartPackages'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Số gói',
+                data: items.map(i => i.packages),
+                backgroundColor: items.map((_, idx) => COLORS[idx % COLORS.length] + '99'),
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: 'Số gói' }, beginAtZero: true }, x: { ticks: { maxRotation: 45, font: { size: 10 } } } }
+        }
+    });
+
+    // Pie chart - revenue share
+    charts.pie = new Chart(document.getElementById('chartPie'), {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data: items.map(i => i.revenue),
+                backgroundColor: items.map((_, idx) => COLORS[idx % COLORS.length]),
+                borderWidth: 2,
+                borderColor: '#fff',
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+                tooltip: { callbacks: { label: ctx => {
+                    const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
+                    return ctx.label + ': ' + formatVND(ctx.parsed) + ' (' + (ctx.parsed/total*100).toFixed(1) + '%)';
+                }}}
+            }
+        }
+    });
+
+    document.getElementById('chartTitle1').textContent = `Sale Rate theo cơ cấu - ${prefix}`;
+    document.getElementById('chartTitle2').textContent = `Doanh thu theo cơ cấu - ${prefix}`;
+    document.getElementById('chartTitle3').textContent = `Số gói theo cơ cấu - ${prefix}`;
+    document.getElementById('chartTitle4').textContent = `Cơ cấu doanh thu (%) - ${prefix}`;
+}
+
+function renderRanking() {
+    const sorted = [...DATA.salon_summary].sort((a,b) => b.weighted_salerate - a.weighted_salerate);
+    const top20 = sorted.slice(0, 20);
+    const bottom10 = sorted.slice(-10).reverse();
+    const combined = [...top20, ...bottom10];
+    const labels = combined.map(s => s.Salon_name);
+    const values = combined.map(s => s.weighted_salerate * 100);
+    const colors = combined.map((s, i) => i < 20 ? '#22c55e' : '#ef4444');
+
+    if (charts.ranking) charts.ranking.destroy();
+    charts.ranking = new Chart(document.getElementById('chartRanking'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Sale Rate (%)',
+                data: values,
+                backgroundColor: colors,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ctx.parsed.x.toFixed(2) + '%' } }
+            },
+            scales: {
+                x: { title: { display: true, text: 'Sale Rate (%)' }, beginAtZero: true },
+                y: { ticks: { font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function renderOverallAssessment() {
+    const summaries = DATA.salon_summary;
+    const highPerf = summaries.filter(s => s.weighted_salerate >= 0.1);
+    const midPerf = summaries.filter(s => s.weighted_salerate >= 0.03 && s.weighted_salerate < 0.1);
+    const lowPerf = summaries.filter(s => s.weighted_salerate < 0.03);
+
+    const topSalon = summaries.reduce((a,b) => a.weighted_salerate > b.weighted_salerate ? a : b);
+    const bottomSalon = summaries.reduce((a,b) => a.weighted_salerate < b.weighted_salerate ? a : b);
+    const topRevenue = summaries.reduce((a,b) => a.total_revenue > b.total_revenue ? a : b);
+
+    // Nganh hang analysis
+    const nhAgg = {};
+    DATA.salon_nganh.forEach(r => {
+        if (!nhAgg[r.Nganh_hang]) nhAgg[r.Nganh_hang] = { revenue: 0, packages: 0, sr_sum: 0, cnt: 0 };
+        nhAgg[r.Nganh_hang].revenue += r.total_revenue;
+        nhAgg[r.Nganh_hang].packages += r.total_packages;
+        nhAgg[r.Nganh_hang].sr_sum += r.avg_salerate * r.total_packages;
+        nhAgg[r.Nganh_hang].cnt += r.total_packages;
+    });
+
+    const nhItems = Object.entries(nhAgg).map(([k,v]) => ({
+        name: k, revenue: v.revenue, packages: v.packages,
+        salerate: v.cnt > 0 ? v.sr_sum/v.cnt : 0
+    })).sort((a,b) => b.salerate - a.salerate);
+
+    document.getElementById('assessmentContent').innerHTML = `
+        <div class="assessment-item info">
+            <h4>📈 Phân bổ hiệu suất Salon</h4>
+            <p><strong>${highPerf.length}</strong> salon Sale Rate cao (≥10%)<br>
+            <strong>${midPerf.length}</strong> salon Sale Rate trung bình (3-10%)<br>
+            <strong>${lowPerf.length}</strong> salon Sale Rate thấp (<3%)</p>
+        </div>
+        <div class="assessment-item good">
+            <h4>🏆 Salon dẫn đầu Sale Rate</h4>
+            <p><strong>${topSalon.Salon_name}</strong> với Sale Rate <strong>${formatPercent(topSalon.weighted_salerate)}</strong><br>
+            Doanh thu: ${formatVND(topSalon.total_revenue)} | ${topSalon.total_packages.toLocaleString()} gói</p>
+        </div>
+        <div class="assessment-item bad">
+            <h4>⚠️ Salon cần cải thiện nhất</h4>
+            <p><strong>${bottomSalon.Salon_name}</strong> với Sale Rate <strong>${formatPercent(bottomSalon.weighted_salerate)}</strong><br>
+            Doanh thu: ${formatVND(bottomSalon.total_revenue)} | ${bottomSalon.total_packages.toLocaleString()} gói</p>
+        </div>
+        <div class="assessment-item warning">
+            <h4>💰 Salon doanh thu cao nhất</h4>
+            <p><strong>${topRevenue.Salon_name}</strong> với doanh thu <strong>${formatVND(topRevenue.total_revenue)}</strong><br>
+            Sale Rate: ${formatPercent(topRevenue.weighted_salerate)} | ${topRevenue.total_packages.toLocaleString()} gói</p>
+        </div>
+        <div class="assessment-item info">
+            <h4>📊 Sale Rate theo Ngành hàng</h4>
+            <p>${nhItems.map(n => `<strong>${n.name}</strong>: SR ${formatPercent(n.salerate)} | DT ${formatVND(n.revenue)}`).join('<br>')}</p>
+        </div>
+        <div class="assessment-item ${lowPerf.length > summaries.length * 0.5 ? 'bad' : 'good'}">
+            <h4>🎯 Nhận xét chung</h4>
+            <p>${lowPerf.length > summaries.length * 0.5
+                ? 'Hơn 50% salon có Sale Rate dưới 3%. Cần tập trung đào tạo kỹ năng bán dịch vụ và review quy trình tư vấn tại các salon có Sale Rate thấp.'
+                : 'Đa số salon duy trì Sale Rate ở mức trung bình-khá. Tập trung nhân rộng mô hình từ các salon có Sale Rate cao nhất.'}</p>
+        </div>
+    `;
+}
+
+function renderSalonAssessment() {
+    const salon = getSelectedSalon();
+    const panel = document.getElementById('salonAssessment');
+    if (salon === 'all') { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    const s = DATA.salon_summary.find(x => x.Salon_name === salon);
+    const rank = [...DATA.salon_summary].sort((a,b) => b.weighted_salerate - a.weighted_salerate).findIndex(x => x.Salon_name === salon) + 1;
+    const total = DATA.salon_summary.length;
+
+    // Best/worst category for this salon
+    const cats = DATA.salon_cat.filter(x => x.Salon_name === salon).sort((a,b) => b.avg_salerate - a.avg_salerate);
+    const bestCat = cats[0];
+    const worstCat = cats[cats.length - 1];
+
+    // Nganh hang for this salon
+    const nhs = DATA.salon_nganh.filter(x => x.Salon_name === salon);
+
+    document.getElementById('salonAssessmentTitle').textContent = `🏪 Đánh Giá: ${salon}`;
+    document.getElementById('salonAssessmentContent').innerHTML = `
+        <div class="assessment-item ${rank <= total*0.25 ? 'good' : rank <= total*0.5 ? 'warning' : 'bad'}">
+            <h4>📊 Xếp hạng Sale Rate</h4>
+            <p>Hạng <strong>#${rank}/${total}</strong> salon<br>
+            Sale Rate: <strong>${formatPercent(s.weighted_salerate)}</strong><br>
+            ${rank <= 10 ? '🌟 Top 10 salon tốt nhất!' : rank > total - 10 ? '⚠️ Nằm trong nhóm 10 salon cần cải thiện' : 'Nhóm trung bình'}</p>
+        </div>
+        <div class="assessment-item info">
+            <h4>💰 Hiệu quả kinh doanh</h4>
+            <p>Doanh thu: <strong>${formatVND(s.total_revenue)}</strong><br>
+            Số gói: <strong>${s.total_packages.toLocaleString()}</strong><br>
+            DT/Khách TB: <strong>${formatVND(s.avg_revenue_per_customer)}</strong></p>
+        </div>
+        <div class="assessment-item good">
+            <h4>✅ Nhóm DV mạnh nhất</h4>
+            <p><strong>${bestCat ? bestCat.main_p_Category_name : 'N/A'}</strong><br>
+            Sale Rate: ${bestCat ? formatPercent(bestCat.avg_salerate) : 'N/A'}<br>
+            Doanh thu: ${bestCat ? formatVND(bestCat.total_revenue) : 'N/A'}</p>
+        </div>
+        <div class="assessment-item bad">
+            <h4>❌ Nhóm DV cần cải thiện</h4>
+            <p><strong>${worstCat ? worstCat.main_p_Category_name : 'N/A'}</strong><br>
+            Sale Rate: ${worstCat ? formatPercent(worstCat.avg_salerate) : 'N/A'}<br>
+            Doanh thu: ${worstCat ? formatVND(worstCat.total_revenue) : 'N/A'}</p>
+        </div>
+        <div class="assessment-item info">
+            <h4>📋 Phân bổ theo Ngành hàng</h4>
+            <p>${nhs.map(n => `<strong>${n.Nganh_hang}</strong>: SR ${formatPercent(n.avg_salerate)} | DT ${formatVND(n.total_revenue)} | ${n.total_packages} gói`).join('<br>')}</p>
+        </div>
+        <div class="assessment-item ${s.weighted_salerate >= 0.1 ? 'good' : s.weighted_salerate >= 0.03 ? 'warning' : 'bad'}">
+            <h4>🎯 Khuyến nghị</h4>
+            <p>${s.weighted_salerate >= 0.1
+                ? 'Salon hoạt động tốt. Duy trì và chia sẻ kinh nghiệm cho các salon khác.'
+                : s.weighted_salerate >= 0.03
+                    ? 'Sale Rate ở mức trung bình. Cần tăng cường tư vấn dịch vụ, đặc biệt nhóm ' + (worstCat ? worstCat.main_p_Category_name : '') + '.'
+                    : 'Sale Rate thấp. Cần review lại quy trình tư vấn, đào tạo nhân viên và xem xét danh mục dịch vụ phù hợp.'}</p>
+        </div>
+    `;
+}
+
+function renderTable() {
+    const salon = getSelectedSalon();
+    let data = salon === 'all' ? DATA.salon_detail : DATA.salon_detail.filter(x => x.Salon_name === salon);
+    data = data.sort((a,b) => b.avg_salerate - a.avg_salerate).slice(0, 100);
+    const maxRate = Math.max(...data.map(d => d.avg_salerate), 0.01);
+
+    document.getElementById('tableTitle').textContent = salon === 'all'
+        ? '📋 Top 100 Dịch Vụ theo Sale Rate (tất cả salon)'
+        : `📋 Chi Tiết Dịch Vụ - ${salon}`;
+
+    document.getElementById('detailBody').innerHTML = data.map(d => `
+        <tr>
+            <td>${d.Salon_name}</td>
+            <td>${d.Nganh_hang}</td>
+            <td>${d.main_p_Category_name}</td>
+            <td>${d.main_Category_name}</td>
+            <td>${d.Name}</td>
+            <td class="text-right">${formatVND(d.total_revenue)}</td>
+            <td class="text-right">${d.total_packages.toLocaleString()}</td>
+            <td class="text-right">${getSaleRateBar(d.avg_salerate, maxRate)} ${formatPercent(d.avg_salerate)} ${getSaleRateBadge(d.avg_salerate)}</td>
+            <td class="text-right">${formatVND(d.avg_revenue_per_customer)}</td>
+        </tr>
+    `).join('');
+}
+
+// Load
+loadData();
+</script>
+</body>
+</html>
